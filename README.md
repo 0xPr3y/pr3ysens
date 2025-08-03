@@ -24,7 +24,7 @@ It highlights suspicious or dangerous connections, organizes results for quick r
 ## 🧪 Usage
 
 ```bash
-python tool.py
+python pr3ysens.py
 ```
 
 Choose the scan mode you want from the menu.
