@@ -1,84 +1,111 @@
 import subprocess
 import sys
+import time
+import ctypes
 
-# ANSI color codes (no external libraries)
+# Colors
 RED = "\033[31m"
 YELLOW = "\033[33m"
 GREEN = "\033[32m"
 CYAN = "\033[36m"
 RESET = "\033[0m"
 
-scan_logs = []
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
 
 important_ports = {"80", "443", "3389"}
-suspicious_ports = {"22", "23" "53", "21", "137", "139", "445", "3306", "1433"}
-dangerous_ports = {"4444", "6667", "10000" "31337"}
+suspicious_ports = {"22", "23", "53", "21", "137", "139", "445", "3306", "1433"}
+dangerous_ports = {"4444", "6667", "10000", "31337"}
 
-while True:
-    print("[1] Scan")
-    print("[2] Display Scan Output")
-    print("[7] Exit")
-    usrInput = input("Choose: ")
+def print_progress(current, total, task):
+    percent = int((current / total) * 100)
+    bar = "#" * (percent // 5) + "-" * (20 - percent // 5)
+    sys.stdout.write(f"\r{CYAN}[🔄] {task:<15} [{bar}] {percent}%{RESET}")
+    sys.stdout.flush()
 
-    match usrInput:
-        case "1":
-            scan = ["ipconfig", "ping 8.8.8.8", "netstat -an"]
-            scan_logs.clear()
+scan_commands = [
+    "ipconfig",
+    "ping 8.8.8.8",
+    "netstat -an",
+    "systeminfo",
+    "sfc /scannow",
+    "dism /Online /Cleanup-Image /ScanHealth",
+    "chkdsk C:"
+]
 
-            print(f"\n{CYAN}[🔍] Starting scan...{RESET}\n")
+def run_scan():
+    if not is_admin():
+        print(f"{YELLOW}[⚠] For best results, run this tool as Administrator in CMD.{RESET}")
+        return
 
-            for cmd in scan:
-                result = subprocess.run(cmd, capture_output=True, text=True)
-                output = result.stdout
-                scan_logs.append(f"\n===== {cmd} Output =====\n{output}")
+    total_cmds = len(scan_commands)
+    scan_logs = []
+    print(f"{CYAN}[🔍] Starting scan ...{RESET}")
 
-                for line in output.splitlines():
-                    parts = line.split()
+    start_time = time.time()
 
-                    if "IPv4 Address" in line:
-                        print("[IP] ", line.strip())
-                    elif "Reply from" in line:
-                        print("[PING] ", line.strip())
-                    elif "Request timed out" in line:
-                        print("[PING] ", line.strip())
-                    elif cmd == "netstat -an" and len(parts) >= 4 and parts[0] in ["TCP", "UDP"]:
-                        protocol = parts[0]
-                        local = parts[1]
-                        remote = parts[2]
-                        state = parts[3] if protocol == "TCP" else "N/A"
+    for i, cmd in enumerate(scan_commands, 1):
+        print_progress(i - 1, total_cmds, "Scanning")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        output = result.stdout
+        scan_logs.append(f"\n===== {cmd} Output =====\n{output}")
 
-                        if ':' in remote:
-                            port = remote.rsplit(":", 1)[-1]
-                        else:
-                            port = ""
-
-                        # Apply color and tag based on port type
+        if cmd == "netstat -an":
+            detected = 0
+            for line in output.splitlines():
+                parts = line.split()
+                if len(parts) >= 4 and parts[0] in ["TCP", "UDP"]:
+                    remote = parts[2]
+                    if ':' in remote:
+                        port = remote.rsplit(":", 1)[-1]
                         if port in dangerous_ports:
-                            tag = f"{RED}[🚨 suspicious]{RESET}"
+                            print(f"{RED}[NETSTAT] Suspicious port detected: {remote}{RESET}")
+                            detected += 1
                         elif port in suspicious_ports:
-                            tag = f"{YELLOW}[⚠ maybe risky]{RESET}"
-                        elif port in important_ports:
-                            tag = f"{GREEN}[✔ important]{RESET}"
-                        else:
-                            continue  # Skip others
+                            print(f"{YELLOW}[NETSTAT] Risky port detected: {remote}{RESET}")
+                            detected += 1
+            if detected == 0:
+                print(f"{GREEN}[NETSTAT] No suspicious connections detected.{RESET}")
 
-                        print(f"{CYAN}[NETSTAT]{RESET} {protocol:<5} {local:<21} -> {remote:<21} {state:<12} {tag}")
+        elif cmd in ["systeminfo", "sfc /scannow", "dism /Online /Cleanup-Image /ScanHealth", "chkdsk C:"]:
+            if "corrupt" in output.lower() or "error" in output.lower():
+                print(f"{RED}[{cmd}] Issues found. Check logs for details.{RESET}")
+            else:
+                print(f"{GREEN}[{cmd}] No issues detected.{RESET}")
 
-            with open("scanOutput.txt", "w") as f:
-                f.write("\n".join(scan_logs))
+    print_progress(total_cmds, total_cmds, "Scanning")
+    duration = int(time.time() - start_time)
+    print(f"\n\n{CYAN}[✔] Scan complete in {duration} seconds. Use option [2] to view full logs.{RESET}")
 
-            print(f"\n{CYAN}[✔] Scan complete. For full details, select [2] Display Scan Output.{RESET}\n")
+    with open("scanOutput.txt", "w", encoding="utf-8") as f:
+        f.write("\n".join(scan_logs))
 
-        case "2":
-            try:
-                with open("scanOutput.txt", "r") as f:
-                    print(f"\n{CYAN}========== Full Scan Output =========={RESET}\n")
-                    print(f.read())
-            except FileNotFoundError:
-                print("[!] No scan data found. Please run a scan first.")
+def show_menu():
+    while True:
+        print("\n=== pr3ysens Tool ===")
+        print("[1] Full Scan")
+        print("[2] Display Scan Output")
+        print("[3] Exit")
+        choice = input("Select an option: ")
 
-        case "7":
-            sys.exit(0)
+        match choice:
+            case "1":
+                run_scan()
+            case "2":
+                try:
+                    with open("scanOutput.txt", "r", encoding="utf-8") as f:
+                        print(f"\n{CYAN}===== Full Scan Output ====={RESET}")
+                        print(f.read())
+                except FileNotFoundError:
+                    print(f"{RED}[!] No scan results found. Please run a scan first.{RESET}")
+            case "3":
+                print("Exiting...")
+                sys.exit(0)
+            case _:
+                print("Invalid choice. Please select 1, 2, or 3.")
 
-        case _:
-            print("Invalid choice. Please select 1, 2, or 7.")
+# Start menu
+show_menu()
